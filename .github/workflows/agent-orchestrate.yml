@@ -175,7 +175,7 @@ jobs:
       # (You can add a mutually exclusive OpenAI step here if preferred.)
 
       - name: Extract report + patch from LLM output
-        if: steps.llm.outcome == 'success'
+        if: steps.llm.conclusion == 'success'
         shell: bash
         run: |
           text=$(jq -r '.content[0].text // ""' artifacts/llm.json)
@@ -187,7 +187,7 @@ jobs:
           mv artifacts/report.md.trim artifacts/report.md
 
       - name: Create branch & apply patch
-        if: steps.llm.outcome == 'success'
+        if: steps.llm.conclusion == 'success'
         shell: bash
         run: |
           if [ -s artifacts/patch.diff ]; then
@@ -199,7 +199,7 @@ jobs:
           fi
 
       - name: Prepare PR body
-        if: steps.llm.outcome == 'success'
+        if: steps.llm.conclusion == 'success'
         shell: bash
         run: |
           echo "**Summary**" > artifacts/PR_BODY.md
@@ -211,7 +211,7 @@ jobs:
           echo "- tests: see artifact" >> artifacts/PR_BODY.md
 
       - name: Open PR (or update) with gh CLI
-        if: steps.llm.outcome == 'success'
+        if: steps.llm.conclusion == 'success'
         shell: bash
         run: |
           if git rev-parse --verify ai/auto-fix >/dev/null 2>&1; then
