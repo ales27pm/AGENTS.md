@@ -12,15 +12,20 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
+      actions: read
     steps:
       - name: Download artifacts
+        id: download
+        continue-on-error: true
         uses: actions/download-artifact@v4
         with:
           name: agent-artifacts
           run-id: ${{ github.event.workflow_run.id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
           path: artifacts
 
       - name: Post comment
+        if: steps.download.outcome == 'success'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
