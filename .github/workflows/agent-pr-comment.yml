@@ -1,5 +1,7 @@
+---
+# yamllint disable rule:line-length
 name: agent-pr-comment
-on:
+'on':
   workflow_run:
     workflows: ["agent-orchestrate"]
     types: [completed]

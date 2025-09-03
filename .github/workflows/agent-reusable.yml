@@ -1,5 +1,7 @@
+---
+# yamllint disable rule:line-length
 name: agent-reusable
-on:
+'on':
   workflow_call:
     inputs:
       model:

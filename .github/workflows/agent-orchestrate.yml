@@ -1,5 +1,7 @@
+---
+# yamllint disable rule:line-length rule:braces
 name: agent-orchestrate
-on:
+'on':
   workflow_dispatch:
     inputs:
       mode:
@@ -48,9 +50,9 @@ jobs:
           if [ -f "pyproject.toml" ] || [ -f "requirements.txt" ]; then
             echo "stack=python" >> $GITHUB_OUTPUT
             echo "install=pip install -e .[dev] || pip install -r requirements.txt" >> $GITHUB_OUTPUT
-            echo "lint=${DETECT_LINT:-ruff . || true}" >> $GITHUB_OUTPUT
-            echo "typecheck=${DETECT_TYPECHECK:-mypy --strict || true}" >> $GITHUB_OUTPUT
-            echo "test=${DETECT_TEST:-pytest -q --maxfail=1 --disable-warnings || true}" >> $GITHUB_OUTPUT
+            echo "lint=ruff . || true" >> $GITHUB_OUTPUT
+            echo "typecheck=mypy --strict || true" >> $GITHUB_OUTPUT
+            echo "test=pytest -q --maxfail=1 --disable-warnings || true" >> $GITHUB_OUTPUT
           elif [ -f "package.json" ]; then
             echo "stack=node" >> $GITHUB_OUTPUT
             echo "install=npm ci || yarn install --frozen-lockfile" >> $GITHUB_OUTPUT
@@ -197,9 +199,9 @@ jobs:
             gh pr create --fill --title "fix: agent minimal patch" --body-file artifacts/PR_BODY.md || \
             gh pr edit --body-file artifacts/PR_BODY.md || true
           fi
+        # gh PR docs: https://cli.github.com/manual/gh_pr_create
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        # gh PR docs: https://cli.github.com/manual/gh_pr_create
 
       - name: Upload artifacts
         if: always()
