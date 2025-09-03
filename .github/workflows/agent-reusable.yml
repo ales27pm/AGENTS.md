@@ -1,5 +1,5 @@
 ---
-# yamllint disable rule:line-length
+# Configure yamllint via root config; no inline disables
 name: agent-reusable
 'on':
   workflow_call:

@@ -1,5 +1,5 @@
 ---
-# yamllint disable rule:line-length rule:braces
+# Configure yamllint via root config; no inline disables
 name: agent-orchestrate
 'on':
   workflow_dispatch:
@@ -76,12 +76,12 @@ jobs:
       - name: Setup language runtime (if needed)
         if: steps.detect.outputs.stack == 'python'
         uses: actions/setup-python@v5
-        with: { python-version: '3.11' }
+        with: {python-version: '3.11'}
 
       - name: Setup Node (if needed)
         if: steps.detect.outputs.stack == 'node'
         uses: actions/setup-node@v4
-        with: { node-version: '20' }
+        with: {node-version: '20'}
 
       - name: Install
         run: ${{ steps.detect.outputs.install }}
