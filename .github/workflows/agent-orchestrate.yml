@@ -104,9 +104,9 @@ jobs:
         shell: bash
         run: |
           mkdir -p artifacts
-          ( ${ {steps.detect.outputs.lint} } ) > artifacts/lint.log 2>&1 || true
-          ( ${ {steps.detect.outputs.typecheck} } ) > artifacts/typecheck.log 2>&1 || true
-          ( ${ {steps.detect.outputs.test} } ) > artifacts/tests.log 2>&1 || true
+          ${{ steps.detect.outputs.lint }} > artifacts/lint.log 2>&1 || true
+          ${{ steps.detect.outputs.typecheck }} > artifacts/typecheck.log 2>&1 || true
+          ${{ steps.detect.outputs.test }} > artifacts/tests.log 2>&1 || true
 
       - name: Build LettlReport prompt (from AGENTS.md + REPORTING.md)
         id: prompt
