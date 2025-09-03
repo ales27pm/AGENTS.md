@@ -44,10 +44,6 @@ jobs:
         shell: bash
         run: |
           set -e
-          DETECT_INSTALL=""
-          DETECT_LINT=""
-          DETECT_TYPECHECK=""
-          DETECT_TEST=""
           # very lightweight heuristics; extend as needed
           if [ -f "pyproject.toml" ] || [ -f "requirements.txt" ]; then
             echo "stack=python" >> $GITHUB_OUTPUT
@@ -73,6 +69,7 @@ jobs:
             echo "lint=:" >> $GITHUB_OUTPUT
             echo "typecheck=:" >> $GITHUB_OUTPUT
             echo "test=:" >> $GITHUB_OUTPUT
+          fi
 
       - name: Setup language runtime (if needed)
         if: steps.detect.outputs.stack == 'python'
@@ -87,26 +84,33 @@ jobs:
       - name: Install
         run: ${{ steps.detect.outputs.install }}
 
+      - name: Prepare artifacts dir
+        shell: bash
+        run: mkdir -p artifacts
+
       - name: Lint
-        run: ${{ steps.detect.outputs.lint }}
+        shell: bash
+        run: |
+          set -o pipefail
+          ${{ steps.detect.outputs.lint }} 2>&1 | tee artifacts/lint.log
         continue-on-error: true
 
       - name: Typecheck
-        run: ${{ steps.detect.outputs.typecheck }}
+        shell: bash
+        run: |
+          set -o pipefail
+          ${{ steps.detect.outputs.typecheck }} 2>&1 | tee artifacts/typecheck.log
         continue-on-error: true
 
       - name: Test
-        run: ${{ steps.detect.outputs.test }}
-        continue-on-error: true
-
-      - name: Collect logs
-        if: always()
         shell: bash
         run: |
-          mkdir -p artifacts
-          ${{ steps.detect.outputs.lint }} > artifacts/lint.log 2>&1 || true
-          ${{ steps.detect.outputs.typecheck }} > artifacts/typecheck.log 2>&1 || true
-          ${{ steps.detect.outputs.test }} > artifacts/tests.log 2>&1 || true
+          set -o pipefail
+          ${{ steps.detect.outputs.test }} 2>&1 | tee artifacts/tests.log
+        continue-on-error: true
+
+      # Logs are already captured via tee in each step above.
+      # (No re-execution; avoids malformed interpolation and double work.)
 
       - name: Build LettlReport prompt (from AGENTS.md + REPORTING.md)
         id: prompt
