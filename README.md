@@ -1,2 +1,2 @@
 # AGENTS.md
-Agentic system 
+Agentic system for GitHub Actions workflows
