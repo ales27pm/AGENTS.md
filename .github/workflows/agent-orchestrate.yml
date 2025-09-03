@@ -1,0 +1,205 @@
+name: agent-orchestrate
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "analyze|fix|refactor"
+        required: true
+        default: "analyze"
+      model:
+        description: "LLM model id (provider-agnostic)"
+        required: false
+      summary_budget:
+        description: "max chars for summary"
+        required: false
+        default: "1200"
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  run:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # escalate only here for branch/PR
+      pull-requests: write
+    env:
+      SUMMARY_BUDGET: ${{ github.event.inputs.summary_budget || '1200' }}
+      MODEL: ${{ github.event.inputs.model || 'claude-sonnet-4-20250514' }}
+      # One of these should be present; use environments to scope secrets
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Autodetect toolchain
+        id: detect
+        shell: bash
+        run: |
+          set -e
+          DETECT_INSTALL=""
+          DETECT_LINT=""
+          DETECT_TYPECHECK=""
+          DETECT_TEST=""
+          # very lightweight heuristics; extend as needed
+          if [ -f "pyproject.toml" ] || [ -f "requirements.txt" ]; then
+            echo "stack=python" >> $GITHUB_OUTPUT
+            echo "install=pip install -e .[dev] || pip install -r requirements.txt" >> $GITHUB_OUTPUT
+            echo "lint=${DETECT_LINT:-ruff . || true}" >> $GITHUB_OUTPUT
+            echo "typecheck=${DETECT_TYPECHECK:-mypy --strict || true}" >> $GITHUB_OUTPUT
+            echo "test=${DETECT_TEST:-pytest -q --maxfail=1 --disable-warnings || true}" >> $GITHUB_OUTPUT
+          elif [ -f "package.json" ]; then
+            echo "stack=node" >> $GITHUB_OUTPUT
+            echo "install=npm ci || yarn install --frozen-lockfile" >> $GITHUB_OUTPUT
+            echo "lint=npx eslint . || true" >> $GITHUB_OUTPUT
+            echo "typecheck=npx tsc -p . || true" >> $GITHUB_OUTPUT
+            echo "test=npm test --silent || true" >> $GITHUB_OUTPUT
+          elif [ -f "go.mod" ]; then
+            echo "stack=go" >> $GITHUB_OUTPUT
+            echo "install=go mod download" >> $GITHUB_OUTPUT
+            echo "lint=golangci-lint run || true" >> $GITHUB_OUTPUT
+            echo "typecheck=go vet ./... || true" >> $GITHUB_OUTPUT
+            echo "test=go test ./... -count=1 || true" >> $GITHUB_OUTPUT
+          else
+            echo "stack=unknown" >> $GITHUB_OUTPUT
+            echo "install=:" >> $GITHUB_OUTPUT
+            echo "lint=:" >> $GITHUB_OUTPUT
+            echo "typecheck=:" >> $GITHUB_OUTPUT
+            echo "test=:" >> $GITHUB_OUTPUT
+
+      - name: Setup language runtime (if needed)
+        if: steps.detect.outputs.stack == 'python'
+        uses: actions/setup-python@v5
+        with: { python-version: '3.11' }
+
+      - name: Setup Node (if needed)
+        if: steps.detect.outputs.stack == 'node'
+        uses: actions/setup-node@v4
+        with: { node-version: '20' }
+
+      - name: Install
+        run: ${{ steps.detect.outputs.install }}
+
+      - name: Lint
+        run: ${{ steps.detect.outputs.lint }}
+        continue-on-error: true
+
+      - name: Typecheck
+        run: ${{ steps.detect.outputs.typecheck }}
+        continue-on-error: true
+
+      - name: Test
+        run: ${{ steps.detect.outputs.test }}
+        continue-on-error: true
+
+      - name: Collect logs
+        if: always()
+        shell: bash
+        run: |
+          mkdir -p artifacts
+          ( ${ {steps.detect.outputs.lint} } ) > artifacts/lint.log 2>&1 || true
+          ( ${ {steps.detect.outputs.typecheck} } ) > artifacts/typecheck.log 2>&1 || true
+          ( ${ {steps.detect.outputs.test} } ) > artifacts/tests.log 2>&1 || true
+
+      - name: Build LettlReport prompt (from AGENTS.md + REPORTING.md)
+        id: prompt
+        shell: bash
+        run: |
+          head -c 50000 AGENTS.md > artifacts/AGENTS.slice.md || true   # hard guard
+          echo "## Reporting Contract" > artifacts/REPORTING.slice.md
+          sed -n '/## LettlReport v1/,$p' REPORTING.md | head -c 7000 >> artifacts/REPORTING.slice.md
+          {
+            echo "SYSTEM:"
+            echo "You are a repo-native coding agent. Follow AGENTS.md contract strictly."
+            echo
+            echo "CONTRACT:"
+            cat artifacts/AGENTS.slice.md
+            echo
+            echo "SCHEMA:"
+            cat artifacts/REPORTING.slice.md
+            echo
+            echo "LOGS (summaries only, no raw secrets):"
+            echo "- lint:   see artifact lint.log"
+            echo "- types:  see artifact typecheck.log"
+            echo "- tests:  see artifact tests.log"
+            echo
+            echo "TASK: Produce LettlReport v1 & a minimal patch (unified diff) if safe."
+            echo "BUDGET: ${SUMMARY_BUDGET} chars for the report summary."
+          } > artifacts/prompt.txt
+
+      - name: Call LLM (Anthropic example via curl)
+        id: llm
+        if: env.ANTHROPIC_API_KEY != ''
+        shell: bash
+        run: |
+          set -e
+          body=$(jq -n --arg m "$MODEL" --arg t "$(cat artifacts/prompt.txt)" \
+            '{model:$m, max_tokens: 1200, messages:[{"role":"user","content":$t}]}' )
+          curl -s https://api.anthropic.com/v1/messages \
+            -H "Content-Type: application/json" \
+            -H "x-api-key: ${ANTHROPIC_API_KEY}" \
+            -H "anthropic-version: 2023-06-01" \
+            -d "$body" > artifacts/llm.json
+        # Anthropic cURL pattern & headers per docs
+        # https://docs.anthropic.com/en/docs/get-started
+      # (You can add a mutually exclusive OpenAI step here if preferred.)
+
+      - name: Extract report + patch from LLM output
+        shell: bash
+        run: |
+          text=$(jq -r '.content[0].text // ""' artifacts/llm.json)
+          # split blocks by diff fences if present
+          printf "%s" "$text" | awk 'BEGIN{p=1}/^\# Agent Report/{p=1} {if(p)print}' > artifacts/report.md || true
+          printf "%s" "$text" | sed -n '/^\*\*\* Begin Patch/,$p' > artifacts/patch.diff || true
+          # enforce report size
+          head -c ${SUMMARY_BUDGET} artifacts/report.md > artifacts/report.md.trim || true
+          mv artifacts/report.md.trim artifacts/report.md
+
+      - name: Create branch & apply patch
+        if: always()
+        shell: bash
+        run: |
+          if [ -s artifacts/patch.diff ]; then
+            git switch -c ai/auto-fix || git switch ai/auto-fix
+            git apply artifacts/patch.diff || true
+            git add -A || true
+            git commit -m "fix: auto-minimal patch by agent" || true
+            git push -u origin ai/auto-fix || true
+          fi
+
+      - name: Prepare PR body
+        shell: bash
+        run: |
+          echo "**Summary**" > artifacts/PR_BODY.md
+          sed -n '1,200p' artifacts/report.md >> artifacts/PR_BODY.md
+          echo "" >> artifacts/PR_BODY.md
+          echo "**Checks**" >> artifacts/PR_BODY.md
+          echo "- lint: see artifact" >> artifacts/PR_BODY.md
+          echo "- typecheck: see artifact" >> artifacts/PR_BODY.md
+          echo "- tests: see artifact" >> artifacts/PR_BODY.md
+
+      - name: Open PR (or update) with gh CLI
+        if: always()
+        shell: bash
+        run: |
+          if git rev-parse --verify ai/auto-fix >/dev/null 2>&1; then
+            gh pr create --fill --title "fix: agent minimal patch" --body-file artifacts/PR_BODY.md || \
+            gh pr edit --body-file artifacts/PR_BODY.md || true
+          fi
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # gh PR docs: https://cli.github.com/manual/gh_pr_create
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-artifacts
+          path: artifacts/
