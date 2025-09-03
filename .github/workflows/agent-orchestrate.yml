@@ -129,8 +129,7 @@ jobs:
           ${{ steps.detect.outputs.test }} 2>&1 | tee artifacts/tests.log
         continue-on-error: true
 
-      # Logs are already captured via tee in each step above.
-      # (No re-execution; avoids malformed interpolation and double work.)
+      # Logs already captured via tee; skip re-execution.
 
       - name: Build LettlReport prompt (from AGENTS.md + REPORTING.md)
         id: prompt
