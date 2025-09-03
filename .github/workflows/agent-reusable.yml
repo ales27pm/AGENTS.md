@@ -1,0 +1,28 @@
+---
+# Configure yamllint via root config; no inline disables
+name: agent-reusable
+'on':
+  workflow_call:
+    inputs:
+      model:
+        required: false
+        type: string
+      summary_budget:
+        required: false
+        type: string
+        default: "1200"
+    secrets:
+      ANTHROPIC_API_KEY:
+        required: false
+      OPENAI_API_KEY:
+        required: false
+
+jobs:
+  call:
+    uses: ./.github/workflows/agent-orchestrate.yml
+    with:
+      model: ${{ inputs.model }}
+      summary_budget: ${{ inputs.summary_budget }}
+    secrets:
+      ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+      OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
