@@ -297,154 +297,159 @@ def append_run_to_csv(path: Path, run: BenchmarkRun) -> None:
             )
 
 
-def _safe_float(value: str) -> float:
-    try:
-        return float(value)
-    except ValueError as exc:
-        raise BenchmarkError(f"Unable to convert value '{value}' to float") from exc
-
-
-def _load_csv_records(path: Path) -> List[Dict[str, Any]]:
+def _load_existing_summary(path: Path) -> Dict[str, Any]:
     if not path.exists():
-        return []
+        return {}
 
-    with path.open("r", newline="") as handle:
-        reader = csv.DictReader(handle)
-        records: List[Dict[str, Any]] = []
-        for row in reader:
-            metadata: Dict[str, Any]
-            try:
-                metadata = json.loads(row.get("metadata", "{}"))
-            except json.JSONDecodeError:
-                metadata = {}
-            try:
-                run_metadata = json.loads(row.get("run_metadata", "{}"))
-            except json.JSONDecodeError:
-                run_metadata = {}
-            records.append(
-                {
-                    "run_id": row.get("run_id", ""),
-                    "timestamp": row.get("timestamp", ""),
-                    "tag": row.get("tag") or None,
-                    "category": row.get("category", ""),
-                    "metric": row.get("metric", ""),
-                    "value": _safe_float(row.get("value", "0")),
-                    "unit": row.get("unit", ""),
-                    "metadata": metadata,
-                    "run_metadata": run_metadata,
-                }
-            )
-    return records
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except OSError:
+        return {}
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return {}
+
+    if not isinstance(data, dict):
+        return {}
+
+    return data
 
 
-def _summarize_metric_history(
-    metric: str,
-    values: List[Dict[str, Any]],
-    *,
-    history_limit: int,
-) -> Dict[str, Any]:
-    ordered = sorted(values, key=lambda item: item["timestamp"])
-    history = ordered[-history_limit:]
-    numeric_values = [item["value"] for item in history]
-    latest = history[-1] if history else None
+def _rounded(value: float) -> float:
+    return round(value, DECIMAL_PLACES)
 
-    summary: Dict[str, Any] = {
-        "metric": metric,
-        "unit": latest["unit"] if latest else values[0]["unit"] if values else "",
-        "category": latest["category"] if latest else values[0]["category"] if values else "",
-        "history": [
+
+def _build_run_entry(run: BenchmarkRun) -> Dict[str, Any]:
+    timestamp = run.timestamp.isoformat(timespec="seconds")
+    return {
+        "run_id": run.run_id,
+        "timestamp": timestamp,
+        "tag": run.tag,
+        "system": run.system,
+        "metrics": [
             {
-                "timestamp": item["timestamp"],
-                "run_id": item["run_id"],
-                "value": item["value"],
-                "tag": item["tag"],
+                "category": metric.category,
+                "metric": metric.name,
+                "value": _rounded(metric.value),
+                "unit": metric.unit,
+                "metadata": dict(metric.metadata),
             }
-            for item in history
+            for metric in run.metrics
         ],
     }
 
-    if latest:
-        summary["latest"] = {
-            "timestamp": latest["timestamp"],
-            "value": latest["value"],
-            "run_id": latest["run_id"],
-            "tag": latest["tag"],
-            "metadata": latest["metadata"],
+
+def _merge_runs(
+    existing_runs: List[Dict[str, Any]],
+    new_run: Dict[str, Any],
+    *,
+    limit: Optional[int] = None,
+) -> List[Dict[str, Any]]:
+    merged: List[Dict[str, Any]] = [new_run]
+    seen = {new_run["run_id"]}
+
+    for item in existing_runs:
+        run_id = item.get("run_id")
+        if run_id in seen:
+            continue
+        merged.append(item)
+        seen.add(run_id)
+        if limit is not None and len(merged) >= limit:
+            break
+
+    return merged
+
+
+def _update_metric_rollup(
+    metrics: Dict[str, Dict[str, Any]],
+    metric: BenchmarkMetric,
+    run: BenchmarkRun,
+    *,
+    history_limit: int,
+) -> None:
+    timestamp = run.timestamp.isoformat(timespec="seconds")
+    metric_summary = metrics.setdefault(
+        metric.name,
+        {
+            "metric": metric.name,
+            "unit": metric.unit,
+            "category": metric.category,
+            "history": [],
+        },
+    )
+
+    history: List[Dict[str, Any]] = metric_summary.get("history", [])
+    history.append(
+        {
+            "timestamp": timestamp,
+            "run_id": run.run_id,
+            "value": _rounded(metric.value),
+            "tag": run.tag,
         }
+    )
+    if len(history) > history_limit:
+        history = history[-history_limit:]
+
+    metric_summary["history"] = history
+    metric_summary["unit"] = metric.unit
+    metric_summary["category"] = metric.category
+    metric_summary["latest"] = {
+        "timestamp": timestamp,
+        "value": _rounded(metric.value),
+        "run_id": run.run_id,
+        "tag": run.tag,
+        "metadata": dict(metric.metadata),
+    }
+
+    numeric_values = [entry["value"] for entry in history]
     if numeric_values:
-        summary["average"] = statistics.fmean(numeric_values)
-        summary["min"] = min(numeric_values)
-        summary["max"] = max(numeric_values)
+        metric_summary["average"] = statistics.fmean(numeric_values)
+        metric_summary["min"] = min(numeric_values)
+        metric_summary["max"] = max(numeric_values)
         if len(numeric_values) >= 2:
             previous = numeric_values[-2]
             latest_value = numeric_values[-1]
             if previous:
-                summary["change_pct"] = ((latest_value - previous) / previous) * 100.0
+                metric_summary["change_pct"] = ((latest_value - previous) / previous) * 100.0
             else:
-                summary["change_pct"] = None
+                metric_summary["change_pct"] = None
         else:
-            summary["change_pct"] = None
+            metric_summary["change_pct"] = None
     else:
-        summary["average"] = None
-        summary["min"] = None
-        summary["max"] = None
-        summary["change_pct"] = None
-
-    return summary
+        metric_summary["average"] = None
+        metric_summary["min"] = None
+        metric_summary["max"] = None
+        metric_summary["change_pct"] = None
 
 
-def generate_json_summary(
-    csv_path: Path,
+def update_json_summary(
     json_path: Path,
+    run: BenchmarkRun,
     *,
     history_limit: int = DEFAULT_HISTORY,
+    csv_path: Optional[Path] = None,
 ) -> Dict[str, Any]:
-    """Build a JSON summary from the CSV history and persist it."""
+    """Incrementally update the JSON summary using the latest benchmark run."""
 
-    records = _load_csv_records(csv_path)
-    grouped_metrics: Dict[str, List[Dict[str, Any]]] = {}
-    runs: Dict[str, Dict[str, Any]] = {}
+    summary = _load_existing_summary(json_path)
+    metrics: Dict[str, Dict[str, Any]] = summary.get("metrics") or {}
+    runs = summary.get("runs") or []
 
-    for record in records:
-        run_id = record["run_id"]
-        runs.setdefault(
-            run_id,
-            {
-                "run_id": run_id,
-                "timestamp": record["timestamp"],
-                "tag": record["tag"],
-                "system": record["run_metadata"],
-                "metrics": [],
-            },
-        )
-        runs[run_id]["metrics"].append(
-            {
-                "category": record["category"],
-                "metric": record["metric"],
-                "value": record["value"],
-                "unit": record["unit"],
-                "metadata": record["metadata"],
-            }
-        )
-        grouped_metrics.setdefault(record["metric"], []).append(record)
+    run_entry = _build_run_entry(run)
+    runs = _merge_runs(runs, run_entry)
 
-    metrics_summary = {
-        metric: _summarize_metric_history(metric, values, history_limit=history_limit)
-        for metric, values in grouped_metrics.items()
-    }
+    for metric in run.metrics:
+        _update_metric_rollup(metrics, metric, run, history_limit=history_limit)
 
-    summary = {
-        "version": 1,
-        "generated_at": datetime.now(UTC).isoformat(timespec="seconds"),
-        "csv_path": str(csv_path),
-        "history_limit": history_limit,
-        "metrics": metrics_summary,
-        "runs": sorted(
-            runs.values(),
-            key=lambda item: item["timestamp"],
-            reverse=True,
-        ),
-    }
+    summary["version"] = 1
+    summary["metrics"] = metrics
+    summary["runs"] = runs
+    summary["history_limit"] = history_limit
+    if csv_path is not None:
+        summary["csv_path"] = str(csv_path)
+    summary["generated_at"] = datetime.now(UTC).isoformat(timespec="seconds")
 
     json_path.parent.mkdir(parents=True, exist_ok=True)
     with json_path.open("w", encoding="utf-8") as handle:
@@ -489,7 +494,12 @@ def main(argv: Optional[Sequence[str]] = None) -> Dict[str, Any]:
     )
 
     append_run_to_csv(paths["csv"], run)
-    summary = generate_json_summary(paths["csv"], paths["json"], history_limit=args.history)
+    summary = update_json_summary(
+        paths["json"],
+        run,
+        history_limit=args.history,
+        csv_path=paths["csv"],
+    )
 
     return summary
 
