@@ -1,7 +1,7 @@
 ---
 # Configure yamllint via root config; no inline disables
 name: agent-orchestrate
-'on':
+"on":
   workflow_dispatch:
     inputs:
       mode:
@@ -26,7 +26,7 @@ jobs:
   run:
     runs-on: ubuntu-latest
     permissions:
-      contents: write        # escalate only here for branch/PR
+      contents: write # escalate only here for branch/PR
       pull-requests: write
     env:
       SUMMARY_BUDGET: ${{ github.event.inputs.summary_budget || '1200' }}
@@ -45,46 +45,66 @@ jobs:
         id: detect
         shell: bash
         run: |
-          set -e
-          # very lightweight heuristics; extend as needed
-          if [ -f "pyproject.toml" ] || [ -f "requirements.txt" ]; then
-            echo "stack=python" >> $GITHUB_OUTPUT
-            echo "install=pip install -e .[dev] || pip install -r requirements.txt" >> $GITHUB_OUTPUT
-            echo "lint=ruff . || true" >> $GITHUB_OUTPUT
-            echo "typecheck=mypy --strict || true" >> $GITHUB_OUTPUT
-            echo "test=pytest -q --maxfail=1 --disable-warnings || true" >> $GITHUB_OUTPUT
-          elif [ -f "package.json" ]; then
-            echo "stack=node" >> $GITHUB_OUTPUT
-            echo "install=npm ci || yarn install --frozen-lockfile" >> $GITHUB_OUTPUT
-            echo "lint=npx eslint . || true" >> $GITHUB_OUTPUT
-            echo "typecheck=npx tsc -p . || true" >> $GITHUB_OUTPUT
-            echo "test=npm test --silent || true" >> $GITHUB_OUTPUT
-          elif [ -f "go.mod" ]; then
-            echo "stack=go" >> $GITHUB_OUTPUT
-            echo "install=go mod download" >> $GITHUB_OUTPUT
-            echo "lint=golangci-lint run || true" >> $GITHUB_OUTPUT
-            echo "typecheck=go vet ./... || true" >> $GITHUB_OUTPUT
-            echo "test=go test ./... -count=1 || true" >> $GITHUB_OUTPUT
-          else
-            echo "stack=unknown" >> $GITHUB_OUTPUT
-            echo "install=:" >> $GITHUB_OUTPUT
-            echo "lint=:" >> $GITHUB_OUTPUT
-            echo "typecheck=:" >> $GITHUB_OUTPUT
-            echo "test=:" >> $GITHUB_OUTPUT
-          fi
+          set -euo pipefail
+          scripts/autodetect.sh "$PWD"
 
       - name: Setup language runtime (if needed)
         if: steps.detect.outputs.stack == 'python'
         uses: actions/setup-python@v5
-        with: {python-version: '3.11'}
+        with: { python-version: "3.11" }
 
       - name: Setup Node (if needed)
         if: steps.detect.outputs.stack == 'node'
         uses: actions/setup-node@v4
-        with: {node-version: '20'}
+        with: { node-version: "20" }
+
+      - name: Setup Bun (if needed)
+        if: steps.detect.outputs.stack == 'bun'
+        uses: oven-sh/setup-bun@v2
+        with: { bun-version: "latest" }
+
+      - name: Setup Deno (if needed)
+        if: steps.detect.outputs.stack == 'deno'
+        uses: denoland/setup-deno@v1
+        with: { deno-version: "v1.x" }
+
+      - name: Setup PHP (if needed)
+        if: steps.detect.outputs.stack == 'php'
+        uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.2"
+          tools: composer
+
+      - name: Setup Ruby (if needed)
+        if: steps.detect.outputs.stack == 'ruby'
+        uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.3"
+          bundler-cache: true
+
+      - name: Setup Elixir/Erlang (if needed)
+        if: steps.detect.outputs.stack == 'elixir'
+        uses: erlef/setup-beam@v1
+        with:
+          elixir-version: "1.16"
+          otp-version: "26"
+
+      - name: Cache npm dependencies
+        if: steps.detect.outputs.stack == 'node'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.npm
+            ~/.pnpm-store
+            .pnpm-store
+            node_modules
+          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json', 'pnpm-lock.yaml', 'yarn.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-node-
 
       - name: Install
         run: ${{ steps.detect.outputs.install }}
+        shell: bash
 
       - name: Prepare artifacts dir
         shell: bash
