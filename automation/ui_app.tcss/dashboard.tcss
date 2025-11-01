@@ -1,0 +1,30 @@
+/* Textual CSS for the benchmark dashboard */
+Screen {
+  layout: vertical;
+  background: $surface;
+}
+
+Header {
+  dock: top;
+}
+
+Footer {
+  dock: bottom;
+}
+
+#dashboard {
+  padding: 1 2;
+  content-align: center top;
+  gap: 1;
+}
+
+MetricTrend {
+  width: 100%;
+  border: round $primary;
+}
+
+RunSummary {
+  width: 100%;
+  border: heavy $accent;
+  padding: 1 2;
+}

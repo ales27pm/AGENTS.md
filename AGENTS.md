@@ -12,6 +12,10 @@ Operate **only** inside this repository. Be secure, deterministic, and reversibl
 
 Run `scripts/autodetect.sh` to emit the canonical lint/typecheck/test commands into `$GITHUB_OUTPUT`.
 
+- Raspberry Pi benchmarking now emits JSON (`rpi4/bench/pi_bench.py`) consumed by the Textual dashboard. When
+  modifications touch `rpi4/` or `automation/ui_app.py`, regenerate the summary before final validation so dashboards stay
+  consistent.
+
 - Script already covers Node (npm/pnpm/yarn/bun), Deno, Python (pip/poetry/pdm/uv), Go, Rust, Android, PHP, Ruby, Elixir, and CMake.
 - Extend the script—not the workflows—when onboarding new ecosystems; keep commands ordered lint → typecheck → tests.
 - If the stack remains `unknown`, list ≥2 plausible toolchains in the report and request direction before patching.

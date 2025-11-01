@@ -15,6 +15,8 @@ typecheck → tests → reasoning loops, and documentation for maintainers who n
 - **In-repo quality gates**: Local npm tooling (`npm run lint`, `npm run typecheck`, `npm test`) validates docs, shell scripts,
   and the autodetect flow before shipping changes.
 - **Audit-friendly artifacts**: Every run captures prompts, logs, and reports for reproducibility and post-mortems.
+- **Benchmark dashboards**: `rpi4/bench/pi_bench.py` now emits JSON summaries that power a Textual UI dashboard in
+  `automation/ui_app.py`, keeping Raspberry Pi performance trends front-and-center for operators.
 - **Ops playbook**: `docs/` packages onboarding, lifecycle, and troubleshooting guidance for platform and security teams.
 
 ## Quick Start
