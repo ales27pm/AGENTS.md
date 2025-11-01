@@ -109,7 +109,7 @@ class MetricTrend(Static):
         table.add_row(f"[b]{metric.metric}[/b] ({metric.unit})")
         latest_ts = metric.latest.get("timestamp") if metric.latest else "—"
         latest_value = metric.latest.get("value") if metric.latest else None
-        latest_str = _format_number(float(latest_value)) if isinstance(latest_value, (int, float)) else "—"
+        latest_str = _format_number(float(latest_value)) if latest_value is not None else "—"
         if metric.latest:
             table.add_row(
                 f"Latest: {latest_str} {metric.unit if metric.unit else ''} @ {latest_ts}"
