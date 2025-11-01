@@ -438,7 +438,7 @@ def update_json_summary(
     runs = summary.get("runs") or []
 
     run_entry = _build_run_entry(run)
-    runs = _merge_runs(runs, run_entry)
+    runs = _merge_runs(runs, run_entry, limit=history_limit)
 
     for metric in run.metrics:
         _update_metric_rollup(metrics, metric, run, history_limit=history_limit)
