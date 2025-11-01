@@ -1,6 +1,8 @@
 # Repository Overview
 
 This repository captures the operational contract and automation scaffolding used to run repo-native AI coding agents.
+It now includes a lightweight benchmarking pipeline (`rpi4/bench/pi_bench.py`) that publishes JSON summaries and a Textual
+dashboard (`automation/ui_app.py`) so operators can inspect Raspberry Pi performance trends without leaving the terminal.
 The goal is to provide a reproducible playbook that can be dropped into any project and trusted to reason about code,
 propose patches, and open high-signal pull requests with minimal human supervision.
 
