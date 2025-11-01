@@ -1,0 +1,8 @@
+{
+  "name": "bun-fixture",
+  "version": "0.0.1",
+  "scripts": {
+    "lint": "bunx eslint .",
+    "typecheck": "bunx tsc --noEmit"
+  }
+}

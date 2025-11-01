@@ -1,0 +1,7 @@
+node_modules/
+.pnpm-store/
+.npm/
+artifacts/
+coverage/
+.DS_Store
+*.log
