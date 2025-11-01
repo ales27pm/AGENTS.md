@@ -91,16 +91,43 @@ class PiBenchSummaryTest(unittest.TestCase):
                 ],
             )
             pi_bench.append_run_to_csv(csv_path, second_run)
-            summary = pi_bench.update_json_summary(
+            pi_bench.update_json_summary(
                 summary_path,
                 second_run,
                 history_limit=2,
                 csv_path=csv_path,
             )
 
+            third_run = pi_bench.BenchmarkRun(
+                run_id="run-3",
+                timestamp=datetime.now(UTC),
+                tag="third",
+                system={"machine": "test"},
+                metrics=[
+                    pi_bench.BenchmarkMetric(
+                        name="pi_compute_ms",
+                        value=3.0,
+                        unit="ms",
+                        category="cpu",
+                        metadata={"iterations": 1},
+                    )
+                ],
+            )
+            pi_bench.append_run_to_csv(csv_path, third_run)
+            summary = pi_bench.update_json_summary(
+                summary_path,
+                third_run,
+                history_limit=2,
+                csv_path=csv_path,
+            )
+
             history = summary["metrics"]["pi_compute_ms"]["history"]
             self.assertLessEqual(len(history), 2)
-            self.assertEqual(summary["runs"][0]["run_id"], "run-2")
+            self.assertEqual([entry["run_id"] for entry in history], ["run-2", "run-3"])
+
+            runs = summary["runs"]
+            self.assertEqual(len(runs), 2)
+            self.assertEqual([entry["run_id"] for entry in runs], ["run-3", "run-2"])
 
 
 if __name__ == "__main__":

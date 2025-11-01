@@ -378,8 +378,7 @@ def _update_metric_rollup(
             "category": metric.category,
             "history": [],
         },
-    if previous != 0.0:
-        summary["change_pct"] = ((latest_value - previous) / previous) * 100.0
+    )
     history: List[Dict[str, Any]] = metric_summary.get("history", [])
     history.append(
         {
@@ -438,7 +437,7 @@ def update_json_summary(
     runs = summary.get("runs") or []
 
     run_entry = _build_run_entry(run)
-    runs = _merge_runs(runs, run_entry)
+    runs = _merge_runs(runs, run_entry, limit=history_limit)
 
     for metric in run.metrics:
         _update_metric_rollup(metrics, metric, run, history_limit=history_limit)
