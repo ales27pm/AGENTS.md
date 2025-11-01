@@ -132,13 +132,19 @@ jobs:
       - name: Extract report + patch from LLM output
         shell: bash
         run: |
-          text=$(jq -r '.content[0].text // ""' artifacts/llm.json)
-          # split blocks by diff fences if present
-          printf "%s" "$text" | awk 'BEGIN{p=1}/^\# Agent Report/{p=1} {if(p)print}' > artifacts/report.md || true
-          printf "%s" "$text" | sed -n '/^\*\*\* Begin Patch/,$p' > artifacts/patch.diff || true
-          # enforce report size
-          head -c ${SUMMARY_BUDGET} artifacts/report.md > artifacts/report.md.trim || true
-          mv artifacts/report.md.trim artifacts/report.md
+          if [ -f artifacts/llm.json ]; then
+            text=$(jq -r '.content[0].text // ""' artifacts/llm.json)
+            # split blocks by diff fences if present
+            printf "%s" "$text" | awk 'BEGIN{p=1}/^\# Agent Report/{p=1} {if(p)print}' > artifacts/report.md || true
+            printf "%s" "$text" | sed -n '/^\*\*\* Begin Patch/,$p' > artifacts/patch.diff || true
+            # enforce report size
+            head -c ${SUMMARY_BUDGET} artifacts/report.md > artifacts/report.md.trim || true
+            mv artifacts/report.md.trim artifacts/report.md
+          else
+            echo "::warning::LLM output (artifacts/llm.json) not found; skipping extraction." >&2
+            printf "# Agent Report\n\nNo LLM output was produced for this run.\n" > artifacts/report.md
+            : > artifacts/patch.diff
+          fi
 
       - name: Create branch & apply patch
         if: always()
