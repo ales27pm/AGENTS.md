@@ -48,59 +48,11 @@ jobs:
           set -euo pipefail
           scripts/autodetect.sh "$PWD"
 
-      - name: Setup language runtime (if needed)
-        if: steps.detect.outputs.stack == 'python'
-        uses: actions/setup-python@v5
-        with: { python-version: "3.11" }
-
-      - name: Setup Node (if needed)
-        if: steps.detect.outputs.stack == 'node'
-        uses: actions/setup-node@v4
-        with: { node-version: "20" }
-
-      - name: Setup Bun (if needed)
-        if: steps.detect.outputs.stack == 'bun'
-        uses: oven-sh/setup-bun@v2
-        with: { bun-version: "latest" }
-
-      - name: Setup Deno (if needed)
-        if: steps.detect.outputs.stack == 'deno'
-        uses: denoland/setup-deno@v1
-        with: { deno-version: "v1.x" }
-
-      - name: Setup PHP (if needed)
-        if: steps.detect.outputs.stack == 'php'
-        uses: shivammathur/setup-php@v2
+      - name: Setup runtime
+        if: steps.detect.outputs.stack != ''
+        uses: ./.github/actions/setup-runtime
         with:
-          php-version: "8.2"
-          tools: composer
-
-      - name: Setup Ruby (if needed)
-        if: steps.detect.outputs.stack == 'ruby'
-        uses: ruby/setup-ruby@v1
-        with:
-          ruby-version: "3.3"
-          bundler-cache: true
-
-      - name: Setup Elixir/Erlang (if needed)
-        if: steps.detect.outputs.stack == 'elixir'
-        uses: erlef/setup-beam@v1
-        with:
-          elixir-version: "1.16"
-          otp-version: "26"
-
-      - name: Cache npm dependencies
-        if: steps.detect.outputs.stack == 'node'
-        uses: actions/cache@v4
-        with:
-          path: |
-            ~/.npm
-            ~/.pnpm-store
-            .pnpm-store
-            node_modules
-          key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json', 'pnpm-lock.yaml', 'yarn.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-node-
+          stack: ${{ steps.detect.outputs.stack }}
 
       - name: Install
         run: ${{ steps.detect.outputs.install }}

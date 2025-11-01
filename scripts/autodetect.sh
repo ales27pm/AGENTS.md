@@ -2,19 +2,24 @@
 set -euo pipefail
 IFS=$'\n\t'
 
-# shellcheck disable=SC2155
-readonly REPO_ROOT="${1:-$(pwd)}"
+readonly PROVIDED_ROOT="${1:-$(pwd)}"
 readonly OUTPUT_TARGET="${GITHUB_OUTPUT:-/dev/stdout}"
 
 log() {
   printf '[autodetect] %s\n' "$*" >&2
 }
 
+if [[ ! -d "$PROVIDED_ROOT" ]]; then
+  log "error: repository root '$PROVIDED_ROOT' not found"
+  exit 1
+fi
+
+readonly REPO_ROOT="$(cd "$PROVIDED_ROOT" && pwd)"
+
 set_output() {
   printf '%s=%s\n' "$1" "$2" >>"$OUTPUT_TARGET"
 }
 
-# Defaults represent a no-op stack.
 STACK="unknown"
 INSTALL_CMD=":"
 LINT_CMD=":"
@@ -27,6 +32,14 @@ has_file() {
 
 has_dir() {
   test -d "$REPO_ROOT/$1"
+}
+
+set_stack() {
+  STACK="$1"
+  INSTALL_CMD="$2"
+  LINT_CMD="$3"
+  TYPECHECK_CMD="$4"
+  TEST_CMD="$5"
 }
 
 detect_node_manager() {
@@ -55,139 +68,248 @@ detect_node_manager() {
   fi
 
   if has_file "package.json"; then
-    # Peek at packageManager field without jq; fall back to npm if not found.
     local pm
     pm=$(grep -E '"packageManager"\s*:\s*"' "$REPO_ROOT/package.json" 2>/dev/null | head -n1 | sed -E 's/.*"packageManager"\s*:\s*"([^"]+)".*/\1/' || true)
     case "$pm" in
-      pnpm@* ) echo pnpm; return ;;
-      yarn@* ) echo yarn-modern; return ;;
-      npm@* ) echo npm; return ;;
-      bun@* ) echo bun; return ;;
-      * ) : ;;
+      pnpm@*) echo pnpm; return ;;
+      yarn@*) echo yarn-modern; return ;;
+      npm@*) echo npm; return ;;
+      bun@*) echo bun; return ;;
+      *) : ;;
     esac
   fi
 
   echo npm
 }
 
-if has_file "deno.json" || has_file "deno.jsonc"; then
-  STACK="deno"
-  INSTALL_CMD="deno cache"
-  LINT_CMD="deno task lint || deno lint"
-  TYPECHECK_CMD="deno task check || deno check"
-  TEST_CMD="deno task test || deno test"
-elif has_file "bun.lockb" && has_file "package.json"; then
-  STACK="bun"
-  INSTALL_CMD="bun install --frozen-lockfile"
-  LINT_CMD="bun run lint || bunx eslint ."
-  TYPECHECK_CMD="bun run typecheck || bunx tsc -p ."
-  TEST_CMD="bun test"
-elif has_file "package.json"; then
-  STACK="node"
-  case "$(detect_node_manager)" in
-    pnpm)
-      INSTALL_CMD="pnpm install --frozen-lockfile"
-      LINT_CMD="pnpm lint || pnpm exec eslint ."
-      TYPECHECK_CMD="pnpm typecheck || pnpm exec tsc -p ."
-      TEST_CMD="pnpm test -- --runInBand"
-      ;;
-    yarn)
-      INSTALL_CMD="yarn install --frozen-lockfile"
-      LINT_CMD="yarn lint || npx eslint ."
-      TYPECHECK_CMD="yarn typecheck || npx tsc -p ."
-      TEST_CMD="yarn test --watch=false"
-      ;;
-    yarn-modern)
-      INSTALL_CMD="yarn install --immutable"
-      LINT_CMD="yarn lint || yarn dlx eslint ."
-      TYPECHECK_CMD="yarn typecheck || yarn dlx tsc -p ."
-      TEST_CMD="yarn test --runInBand"
-      ;;
-    bun)
-      INSTALL_CMD="bun install --frozen-lockfile"
-      LINT_CMD="bun run lint || bunx eslint ."
-      TYPECHECK_CMD="bun run typecheck || bunx tsc -p ."
-      TEST_CMD="bun test"
-      ;;
-    *)
-      INSTALL_CMD="npm ci"
-      LINT_CMD="npm run lint --if-present || npx eslint ."
-      TYPECHECK_CMD="npm run typecheck --if-present || npx tsc -p ."
-      TEST_CMD="npm test --silent"
-      ;;
-  esac
-elif has_file "pyproject.toml" || has_file "requirements.txt" || has_file "pdm.lock" || has_file "uv.lock"; then
-  STACK="python"
-  if has_file "uv.lock"; then
-    INSTALL_CMD="uv sync --all-extras --dev || pip install -e '.[dev]'"
-    LINT_CMD="uv run ruff check . || ruff check ."
-    TYPECHECK_CMD="uv run mypy --strict || mypy --strict"
-    TEST_CMD="uv run pytest -q --maxfail=1 --disable-warnings || pytest -q --maxfail=1 --disable-warnings"
-  elif has_file "pdm.lock"; then
-    INSTALL_CMD="pdm install --no-self || pip install -e '.[dev]'"
-    LINT_CMD="pdm run ruff check . || ruff check ."
-    TYPECHECK_CMD="pdm run mypy --strict || mypy --strict"
-    TEST_CMD="pdm run pytest -q --maxfail=1 --disable-warnings || pytest -q --maxfail=1 --disable-warnings"
-  elif has_file "poetry.lock"; then
-    INSTALL_CMD="poetry install --no-root || pip install -e '.[dev]'"
-    LINT_CMD="poetry run ruff check . || ruff check ."
-    TYPECHECK_CMD="poetry run mypy --strict || mypy --strict"
-    TEST_CMD="poetry run pytest -q --maxfail=1 --disable-warnings || pytest -q --maxfail=1 --disable-warnings"
-  else
-    INSTALL_CMD="pip install -e '.[dev]' || pip install -r requirements.txt"
-    LINT_CMD="ruff check . || flake8"
-    TYPECHECK_CMD="mypy --strict || pyright"
-    TEST_CMD="pytest -q --maxfail=1 --disable-warnings"
+detect_deno() {
+  if has_file "deno.json" || has_file "deno.jsonc"; then
+    set_stack \
+      "deno" \
+      "deno cache" \
+      "deno task lint || deno lint" \
+      "deno task check || deno check" \
+      "deno task test || deno test"
+    return 0
   fi
-elif has_file "poetry.lock" && has_file "poetry.toml"; then
-  STACK="python"
-  INSTALL_CMD="poetry install --no-root"
-  LINT_CMD="poetry run ruff check ."
-  TYPECHECK_CMD="poetry run mypy --strict"
-  TEST_CMD="poetry run pytest -q --maxfail=1 --disable-warnings"
-elif has_file "go.mod"; then
-  STACK="go"
-  INSTALL_CMD="go mod download"
-  LINT_CMD="golangci-lint run || gofmt -l ."
-  TYPECHECK_CMD="go vet ./..."
-  TEST_CMD="go test ./... -count=1"
-elif has_file "Cargo.toml"; then
-  STACK="rust"
-  INSTALL_CMD="cargo fetch"
-  LINT_CMD="cargo fmt --all -- --check"
-  TYPECHECK_CMD="cargo clippy --all-targets --all-features -- -D warnings"
-  TEST_CMD="cargo test --all --locked"
-elif has_file "mix.exs"; then
-  STACK="elixir"
-  INSTALL_CMD="mix deps.get"
-  LINT_CMD="mix format --check-formatted"
-  TYPECHECK_CMD=":"
-  TEST_CMD="mix test"
-elif has_file "composer.json"; then
-  STACK="php"
-  INSTALL_CMD="composer install --no-interaction --prefer-dist"
-  LINT_CMD="composer run lint || vendor/bin/phpcs || true"
-  TYPECHECK_CMD="composer run stan || vendor/bin/phpstan analyse || true"
-  TEST_CMD="composer test || vendor/bin/phpunit || true"
-elif has_file "Gemfile"; then
-  STACK="ruby"
-  INSTALL_CMD="bundle install --jobs=4 --retry=3"
-  LINT_CMD="bundle exec rubocop || rubocop"
-  TYPECHECK_CMD=":"
-  TEST_CMD="bundle exec rake test || bundle exec rspec || true"
-elif has_file "CMakeLists.txt"; then
-  STACK="cmake"
-  INSTALL_CMD=":"
-  LINT_CMD=":"
-  TYPECHECK_CMD=":"
-  TEST_CMD="ctest --output-on-failure || true"
-elif has_dir "android" && has_file "android/gradlew"; then
-  STACK="android"
-  INSTALL_CMD="./android/gradlew dependencies"
-  LINT_CMD="./android/gradlew lint"
-  TYPECHECK_CMD=":"
-  TEST_CMD="./android/gradlew test"
-fi
+  return 1
+}
+
+detect_bun() {
+  if has_file "bun.lockb" && has_file "package.json"; then
+    set_stack \
+      "bun" \
+      "bun install --frozen-lockfile" \
+      "bun run lint || bunx eslint ." \
+      "bun run typecheck || bunx tsc -p ." \
+      "bun test"
+    return 0
+  fi
+  return 1
+}
+
+detect_node() {
+  if has_file "package.json"; then
+    local manager
+    manager=$(detect_node_manager)
+    case "$manager" in
+      pnpm)
+        set_stack \
+          "node" \
+          "pnpm install --frozen-lockfile" \
+          "pnpm lint || pnpm exec eslint ." \
+          "pnpm typecheck || pnpm exec tsc -p ." \
+          "pnpm test -- --runInBand"
+        ;;
+      yarn)
+        set_stack \
+          "node" \
+          "yarn install --frozen-lockfile" \
+          "yarn lint || npx eslint ." \
+          "yarn typecheck || npx tsc -p ." \
+          "yarn test --watch=false"
+        ;;
+      yarn-modern)
+        set_stack \
+          "node" \
+          "yarn install --immutable" \
+          "yarn lint || yarn dlx eslint ." \
+          "yarn typecheck || yarn dlx tsc -p ." \
+          "yarn test --runInBand"
+        ;;
+      bun)
+        set_stack \
+          "node" \
+          "bun install --frozen-lockfile" \
+          "bun run lint || bunx eslint ." \
+          "bun run typecheck || bunx tsc -p ." \
+          "bun test"
+        ;;
+      *)
+        set_stack \
+          "node" \
+          "npm ci" \
+          "npm run lint --if-present || npx eslint ." \
+          "npm run typecheck --if-present || npx tsc -p ." \
+          "npm test --silent"
+        ;;
+    esac
+    return 0
+  fi
+  return 1
+}
+
+detect_python() {
+  if has_file "pyproject.toml" || has_file "requirements.txt" || has_file "pdm.lock" || has_file "uv.lock" || has_file "poetry.lock"; then
+    if has_file "uv.lock"; then
+      set_stack \
+        "python" \
+        "uv sync --all-extras --dev || pip install -e '.[dev]'" \
+        "uv run ruff check . || ruff check ." \
+        "uv run mypy --strict || mypy --strict" \
+        "uv run pytest -q --maxfail=1 --disable-warnings || pytest -q --maxfail=1 --disable-warnings"
+    elif has_file "pdm.lock"; then
+      set_stack \
+        "python" \
+        "pdm install --no-self || pip install -e '.[dev]'" \
+        "pdm run ruff check . || ruff check ." \
+        "pdm run mypy --strict || mypy --strict" \
+        "pdm run pytest -q --maxfail=1 --disable-warnings || pytest -q --maxfail=1 --disable-warnings"
+    elif has_file "poetry.lock"; then
+      set_stack \
+        "python" \
+        "poetry install --no-root || pip install -e '.[dev]'" \
+        "poetry run ruff check . || ruff check ." \
+        "poetry run mypy --strict || mypy --strict" \
+        "poetry run pytest -q --maxfail=1 --disable-warnings || pytest -q --maxfail=1 --disable-warnings"
+    else
+      set_stack \
+        "python" \
+        "pip install -e '.[dev]' || pip install -r requirements.txt" \
+        "ruff check . || flake8" \
+        "mypy --strict || pyright" \
+        "pytest -q --maxfail=1 --disable-warnings"
+    fi
+    return 0
+  fi
+  return 1
+}
+
+detect_go() {
+  if has_file "go.mod"; then
+    set_stack \
+      "go" \
+      "go mod download" \
+      "golangci-lint run || gofmt -l ." \
+      "go vet ./..." \
+      "go test ./... -count=1"
+    return 0
+  fi
+  return 1
+}
+
+detect_rust() {
+  if has_file "Cargo.toml"; then
+    set_stack \
+      "rust" \
+      "cargo fetch" \
+      "cargo fmt --all -- --check" \
+      "cargo clippy --all-targets --all-features -- -D warnings" \
+      "cargo test --all --locked"
+    return 0
+  fi
+  return 1
+}
+
+detect_elixir() {
+  if has_file "mix.exs"; then
+    set_stack \
+      "elixir" \
+      "mix deps.get" \
+      "mix format --check-formatted" \
+      ":" \
+      "mix test"
+    return 0
+  fi
+  return 1
+}
+
+detect_php() {
+  if has_file "composer.json"; then
+    set_stack \
+      "php" \
+      "composer install --no-interaction --prefer-dist" \
+      "composer run lint || vendor/bin/phpcs || true" \
+      "composer run stan || vendor/bin/phpstan analyse || true" \
+      "composer test || vendor/bin/phpunit || true"
+    return 0
+  fi
+  return 1
+}
+
+detect_ruby() {
+  if has_file "Gemfile"; then
+    set_stack \
+      "ruby" \
+      "bundle install --jobs=4 --retry=3" \
+      "bundle exec rubocop || rubocop" \
+      ":" \
+      "bundle exec rake test || bundle exec rspec || true"
+    return 0
+  fi
+  return 1
+}
+
+detect_cmake() {
+  if has_file "CMakeLists.txt"; then
+    set_stack \
+      "cmake" \
+      ":" \
+      ":" \
+      ":" \
+      "ctest --output-on-failure || true"
+    return 0
+  fi
+  return 1
+}
+
+detect_android() {
+  if has_dir "android" && has_file "android/gradlew"; then
+    set_stack \
+      "android" \
+      "./android/gradlew dependencies" \
+      "./android/gradlew lint" \
+      ":" \
+      "./android/gradlew test"
+    return 0
+  fi
+  return 1
+}
+
+run_detectors() {
+  local detectors=(
+    detect_deno
+    detect_bun
+    detect_node
+    detect_python
+    detect_go
+    detect_rust
+    detect_elixir
+    detect_php
+    detect_ruby
+    detect_cmake
+    detect_android
+  )
+
+  for detector in "${detectors[@]}"; do
+    if "$detector"; then
+      return 0
+    fi
+  done
+  return 1
+}
+
+run_detectors || true
 
 log "stack=$STACK"
 log "install=$INSTALL_CMD"

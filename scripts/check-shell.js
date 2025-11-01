@@ -1,25 +1,20 @@
 #!/usr/bin/env node
-const { readdirSync, statSync } = require("node:fs");
-const { join, relative } = require("node:path");
+const { relative } = require("node:path");
 const { spawnSync } = require("node:child_process");
+const fg = require("fast-glob");
 
 const repoRoot = process.cwd();
-const shellFiles = [];
-
-function visit(dir) {
-  for (const entry of readdirSync(dir)) {
-    if (entry === "node_modules" || entry.startsWith(".git")) continue;
-    const abs = join(dir, entry);
-    const info = statSync(abs);
-    if (info.isDirectory()) {
-      visit(abs);
-    } else if (info.isFile() && entry.endsWith(".sh")) {
-      shellFiles.push(abs);
-    }
-  }
-}
-
-visit(repoRoot);
+const shellFiles = fg.sync("**/*.sh", {
+  cwd: repoRoot,
+  ignore: [
+    "node_modules/**",
+    "vendor/**",
+    ".git/**",
+    ".venv/**",
+    ".cache/**",
+  ],
+  dot: false,
+});
 
 if (shellFiles.length === 0) {
   console.log("No shell scripts to lint.");
@@ -28,17 +23,41 @@ if (shellFiles.length === 0) {
 
 let failures = 0;
 
-for (const file of shellFiles) {
-  const result = spawnSync("bash", ["-n", file], { stdio: "inherit" });
+function run(command, args, file, label) {
+  const result = spawnSync(command, args, { stdio: "inherit" });
   if (result.status !== 0) {
-    console.error(`bash -n failed for ${relative(repoRoot, file)}`);
+    console.error(`${label} failed for ${relative(repoRoot, file)}`);
     failures += 1;
   }
 }
 
+const hasShellcheck =
+  spawnSync("bash", ["-c", "command -v shellcheck"], { stdio: "ignore" }).status ===
+  0;
+
+for (const file of shellFiles) {
+  run("bash", ["-n", file], file, "bash -n");
+  if (hasShellcheck) {
+    run("shellcheck", [file], file, "shellcheck");
+  }
+}
+
+if (!hasShellcheck) {
+  console.warn(
+    "shellcheck not found on PATH; only bash -n validation was performed.",
+  );
+}
+
 if (failures > 0) {
   process.exitCode = 1;
-  console.error(`${failures} shell script(s) failed bash -n validation.`);
+  console.error(
+    `${failures} shell script(s) failed validation (bash -n or shellcheck).`,
+  );
 } else {
-  console.log(`Validated ${shellFiles.length} shell script(s) with bash -n.`);
+  const toolSummary = hasShellcheck
+    ? "bash -n and shellcheck"
+    : "bash -n";
+  console.log(
+    `Validated ${shellFiles.length} shell script(s) with ${toolSummary}.`,
+  );
 }

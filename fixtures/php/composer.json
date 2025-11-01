@@ -1,0 +1,11 @@
+{
+  "name": "example/php-fixture",
+  "require": {
+    "php": "^8.2"
+  },
+  "scripts": {
+    "lint": "phpcs",
+    "stan": "phpstan analyse",
+    "test": "phpunit"
+  }
+}

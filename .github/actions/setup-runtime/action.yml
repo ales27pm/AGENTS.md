@@ -1,0 +1,66 @@
+name: Setup runtime
+description: Configure language runtimes for autodetected stacks.
+inputs:
+  stack:
+    description: Autodetected stack identifier
+    required: true
+runs:
+  using: composite
+  steps:
+    - name: Setup Python
+      if: inputs.stack == 'python'
+      uses: actions/setup-python@v5
+      with:
+        python-version: "3.11"
+
+    - name: Setup Node.js
+      if: inputs.stack == 'node'
+      uses: actions/setup-node@v4
+      with:
+        node-version: "20"
+
+    - name: Cache npm dependencies
+      if: inputs.stack == 'node'
+      uses: actions/cache@v4
+      with:
+        path: |
+          ~/.npm
+          ~/.pnpm-store
+          .pnpm-store
+          node_modules
+        key: ${{ runner.os }}-node-${{ hashFiles('package-lock.json', 'pnpm-lock.yaml', 'yarn.lock') }}
+        restore-keys: |
+          ${{ runner.os }}-node-
+
+    - name: Setup Bun
+      if: inputs.stack == 'bun'
+      uses: oven-sh/setup-bun@735343b667d3e6f658f44d0eca948eb6282f2b76
+      with:
+        bun-version: latest
+
+    - name: Setup Deno
+      if: inputs.stack == 'deno'
+      uses: denoland/setup-deno@11b63cf76cfcafb4e43f97b6cad24d8e8438f62d
+      with:
+        deno-version: v1.x
+
+    - name: Setup PHP
+      if: inputs.stack == 'php'
+      uses: shivammathur/setup-php@a42e73e16d831796463b22b8d70a3efcad74e074
+      with:
+        php-version: "8.2"
+        tools: composer
+
+    - name: Setup Ruby
+      if: inputs.stack == 'ruby'
+      uses: ruby/setup-ruby@2a9a743e19810b9f3c38060637daf594dbd7b37f
+      with:
+        ruby-version: "3.3"
+        bundler-cache: true
+
+    - name: Setup Elixir/Erlang
+      if: inputs.stack == 'elixir'
+      uses: erlef/setup-beam@0244041924aff81443d3ea1e92333e5641a1db75
+      with:
+        elixir-version: "1.16"
+        otp-version: "26"

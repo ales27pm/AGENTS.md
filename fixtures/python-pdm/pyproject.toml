@@ -1,0 +1,3 @@
+[project]
+name = "example-pdm"
+version = "0.1.0"
