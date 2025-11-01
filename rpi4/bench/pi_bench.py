@@ -378,8 +378,8 @@ def _update_metric_rollup(
             "category": metric.category,
             "history": [],
         },
-    )
-
+    if previous != 0.0:
+        summary["change_pct"] = ((latest_value - previous) / previous) * 100.0
     history: List[Dict[str, Any]] = metric_summary.get("history", [])
     history.append(
         {
